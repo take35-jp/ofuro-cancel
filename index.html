@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>お風呂キャンセル界隈の葛藤</title>
+<title>キャンセラー羽賀は、今日も風呂キャンセルしたい。</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Zen+Marugothic&family=Boogaloo&display=swap');
 
@@ -351,8 +351,8 @@
 
   <div class="screen" id="titleScreen">
     <div class="bath-emoji">🛁</div>
-    <div class="title-main">お風呂キャンセル界隈の葛藤</div>
-    <div class="title-sub">〜キャンセラー羽賀の逃亡記〜</div>
+    <div class="title-main">キャンセラー羽賀は、今日も風呂キャンセルしたい。</div>
+    <div class="title-sub">何日キャンセルできるか、限界への挑戦</div>
     <button class="startBtn" id="startBtn">🏃 逃げる！</button>
     <div class="howto">
       ジョイスティックまたは矢印キーで移動<br>
@@ -666,7 +666,7 @@ function showScreen(id) {
 
 function shareResult() {
   const survived = day > 1 ? day - 1 : 0;
-  const text = `🛁 お風呂キャンセル界隈の葛藤\n\n「キャンセラー羽賀」として${survived}日間逃げ切ったが、${day}日目についに捕まってしまった…\n\n🪥 歯も磨けよ〜！\n\n#お風呂キャンセル界隈の葛藤`;
+  const text = `🛁 キャンセラー羽賀は、今日も風呂キャンセルしたい。\n\n「キャンセラー羽賀」として${survived}日間逃げ切ったが、${day}日目についに入浴。\n\n🪥 歯も磨けよ〜！\n\n#風呂キャンセルしたい`;
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
 }
 

@@ -327,12 +327,103 @@
     pointer-events: none;
     z-index: 25;
   }
+
+  /* Mute button (always-visible top-right) */
+  #muteBtn {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    right: 12px;
+    z-index: 40;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: #ffffff15;
+    border: 1px solid #ffffff30;
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-appearance: none;
+  }
+  #muteBtn:active { transform: scale(0.92); }
+
+  /* Ranking */
+  .ranking {
+    margin-top: 18px;
+    width: min(320px, 86vw);
+    max-height: 32vh;
+    overflow-y: auto;
+    background: #ffffff08;
+    border: 1px solid #ffffff18;
+    border-radius: 14px;
+    padding: 10px 14px;
+  }
+  .ranking-title {
+    font-weight: bold;
+    color: #ffe066;
+    text-align: center;
+    margin-bottom: 8px;
+    font-size: clamp(13px, 3.4vw, 16px);
+    text-shadow: 0 0 8px #ffb300;
+  }
+  .rank-row {
+    display: grid;
+    grid-template-columns: 30px 1fr auto;
+    gap: 8px;
+    padding: 5px 2px;
+    border-bottom: 1px solid #ffffff10;
+    font-size: clamp(11px, 3vw, 14px);
+    color: #ddd;
+  }
+  .rank-row:last-child { border-bottom: none; }
+  .rank-row.is-new { color: #66ffcc; text-shadow: 0 0 6px #00ffaa; }
+  .rank-pos { color: #aaa; }
+  .rank-day { color: #fff; font-weight: bold; }
+  .rank-row.is-new .rank-day { color: #66ffcc; }
+  .rank-date { color: #888; font-size: 0.85em; }
+  .rank-empty {
+    color: #888;
+    text-align: center;
+    padding: 10px;
+    font-size: clamp(11px, 3vw, 14px);
+  }
+
+  /* NEW record badge (gameover) */
+  #newRecord {
+    font-size: clamp(15px, 4.2vw, 19px);
+    color: #66ffcc;
+    background: #00ffaa22;
+    border: 1px solid #66ffcc66;
+    padding: 5px 16px;
+    border-radius: 22px;
+    margin-bottom: 14px;
+    text-shadow: 0 0 10px #00ffaa;
+    animation: haFlash 0.7s ease-in-out infinite;
+    text-align: center;
+  }
+  #newRecord.hidden { display: none; }
+
+  /* Title-back button */
+  .titleBtn {
+    background: #ffffff10;
+    color: #fff;
+    border: 2px solid #ffffff44;
+    padding: clamp(11px,3vw,14px) clamp(22px,7vw,36px);
+    font-size: clamp(14px, 4vw, 17px);
+    font-family: 'Zen Marugothic', sans-serif;
+    border-radius: 60px;
+    cursor: pointer;
+    -webkit-appearance: none;
+  }
+  .titleBtn:active { background: #ffffff20; }
 </style>
 </head>
 <body>
 
 <div id="gameWrapper">
   <canvas id="gameCanvas"></canvas>
+  <button id="muteBtn" type="button" aria-label="ミュート切替">🔊</button>
 
   <div id="ui">
     <div id="topBar">
@@ -359,6 +450,10 @@
       風呂グッズから24秒逃げ切れ！<br>
       🍜🍔 を拾うとスピードUP！
     </div>
+    <div class="ranking">
+      <div class="ranking-title">🏆 ランキング TOP10</div>
+      <div id="rankingList"></div>
+    </div>
   </div>
 
   <div class="screen hidden" id="clearScreen">
@@ -373,10 +468,12 @@
     <div class="go-title">お風呂に入れられた…</div>
     <div class="go-sub" id="goResult"></div>
     <div class="go-days" id="goDays"></div>
+    <div id="newRecord" class="hidden"></div>
     <div class="go-ha">🪥 歯も磨けよ〜！</div>
     <div class="btnRow">
       <button class="shareBtn" id="shareBtn">𝕏 シェア</button>
       <button class="retryBtn" id="retryBtn">🔄 もう一度</button>
+      <button class="titleBtn" id="titleBackBtn">🏠 タイトル</button>
     </div>
   </div>
 
@@ -429,6 +526,136 @@ let enemies = [], items = [];
 const ENEMY_EMOJIS = ['🧴','🚿','🪥','🧼','🧽','💧','🛁','🫧'];
 const FOOD_EMOJIS  = ['🍜','🍔','🍟','🍕','🌮'];
 
+// === Audio (BGM + SFX, Web Audio API, no external files) ===
+let audioCtx = null;
+let bgmEnabled = false;
+let bgmTimeout = null;
+let bgmNodes = [];
+let isMuted = (localStorage.getItem('ofuro_muted') === '1');
+
+function ensureAudio() {
+  if (audioCtx) return;
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+  catch (e) {}
+}
+
+function playSfx(notes) {
+  if (!audioCtx || isMuted) return;
+  let t = audioCtx.currentTime;
+  for (const n of notes) {
+    const freq = n[0], dur = n[1], type = n[2] || 'square', vol = n[3] || 0.15;
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    env.gain.setValueAtTime(vol, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(env).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + dur);
+    t += dur;
+  }
+}
+
+const SFX = {
+  start:    () => playSfx([[523, 0.08], [784, 0.12]]),
+  item:     () => playSfx([[1047, 0.06], [1568, 0.10]]),
+  clear:    () => playSfx([[523, 0.12], [659, 0.12], [784, 0.25]]),
+  gameover: () => playSfx([[392, 0.15, 'sawtooth', 0.18], [330, 0.15, 'sawtooth', 0.18], [262, 0.4, 'sawtooth', 0.18]]),
+};
+
+const BGM_PATTERN = [
+  [523,0.18],[659,0.18],[784,0.18],[659,0.18],
+  [523,0.18],[784,0.18],[1047,0.36],[784,0.18],
+  [880,0.18],[784,0.18],[659,0.18],[523,0.18],
+  [659,0.36],[523,0.36],
+];
+
+function scheduleBgm() {
+  if (!audioCtx || isMuted || !bgmEnabled) return;
+  bgmNodes = [];
+  let t = audioCtx.currentTime + 0.05;
+  let total = 0;
+  for (const [freq, dur] of BGM_PATTERN) {
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, t);
+    env.gain.setValueAtTime(0.05, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.9);
+    osc.connect(env).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + dur);
+    bgmNodes.push(osc);
+    t += dur;
+    total += dur;
+  }
+  bgmTimeout = setTimeout(scheduleBgm, total * 1000);
+}
+
+function startBgm() {
+  if (bgmEnabled) return;
+  ensureAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  bgmEnabled = true;
+  scheduleBgm();
+}
+
+function stopBgm() {
+  bgmEnabled = false;
+  if (bgmTimeout) { clearTimeout(bgmTimeout); bgmTimeout = null; }
+  for (const n of bgmNodes) { try { n.stop(); } catch(e){} }
+  bgmNodes = [];
+}
+
+function setMute(muted) {
+  isMuted = muted;
+  localStorage.setItem('ofuro_muted', muted ? '1' : '0');
+  if (muted) stopBgm();
+  else if (state === 'playing') startBgm();
+  const btn = document.getElementById('muteBtn');
+  if (btn) btn.textContent = muted ? '🔇' : '🔊';
+}
+
+// === Ranking (TOP 10, localStorage) ===
+const RANK_KEY = 'ofuro_ranking';
+const RANK_MAX = 10;
+
+function loadRanking() {
+  try { return JSON.parse(localStorage.getItem(RANK_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveRanking(daysSurvived) {
+  if (daysSurvived <= 0) return { rank: 0, id: null };
+  const list = loadRanking();
+  const entry = {
+    day: daysSurvived,
+    date: new Date().toLocaleDateString('ja-JP'),
+    id: Date.now() + Math.floor(Math.random() * 1000),
+  };
+  list.push(entry);
+  list.sort((a, b) => b.day - a.day || b.id - a.id);
+  const top = list.slice(0, RANK_MAX);
+  localStorage.setItem(RANK_KEY, JSON.stringify(top));
+  const idx = top.findIndex(r => r.id === entry.id);
+  return { rank: idx >= 0 ? idx + 1 : 0, id: entry.id };
+}
+
+function renderRanking(highlightId) {
+  const list = loadRanking();
+  const el = document.getElementById('rankingList');
+  if (!el) return;
+  if (list.length === 0) {
+    el.innerHTML = '<div class="rank-empty">まだ記録なし — 今日もキャンセルしよう</div>';
+    return;
+  }
+  el.innerHTML = list.map((r, i) => {
+    const cls = (highlightId && r.id === highlightId) ? 'rank-row is-new' : 'rank-row';
+    return `<div class="${cls}"><span class="rank-pos">${i+1}.</span><span class="rank-day">${r.day}日</span><span class="rank-date">${r.date}</span></div>`;
+  }).join('');
+}
+
 // Keyboard
 const keys = {};
 document.addEventListener('keydown', e => keys[e.key] = true);
@@ -480,8 +707,8 @@ document.getElementById('retryBtn'  ).addEventListener('click', restartGame);
 function getEnemyCount(d) { return Math.min(4 + d * 2, 22); }
 function getEnemySpeed(d) { return 0.85 + d * 0.2; }
 
-function startGame()   { day = 1; beginDay(); }
-function restartGame() { day = 1; beginDay(); }
+function startGame()   { ensureAudio(); if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); SFX.start(); day = 1; beginDay(); }
+function restartGame() { ensureAudio(); if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); SFX.start(); day = 1; beginDay(); }
 
 function beginDay() {
   state = 'playing';
@@ -503,6 +730,7 @@ function beginDay() {
   if (animFrame) cancelAnimationFrame(animFrame);
   lastTime = performance.now();
   animFrame = requestAnimationFrame(loop);
+  startBgm();
 }
 
 function spawnEnemy() {
@@ -620,6 +848,7 @@ function draw() {
 }
 
 function activateSpeedBuff() {
+  SFX.item();
   speedBuff = 1; speedBuffTimer = 5; updateSpeedUI();
   const pop = document.getElementById('itemPopup');
   pop.classList.add('show');
@@ -639,6 +868,7 @@ function updateSpeedUI() {
 function turnClear() {
   if (state !== 'playing') return;
   state = 'clear';
+  SFX.clear();
   clearInterval(timerInterval); cancelAnimationFrame(animFrame);
   joystickArea.style.display = 'none';
   document.getElementById('clearTitle').textContent = `キャンセル成功 ${day}日目！`;
@@ -651,10 +881,26 @@ function nextDay() { day++; beginDay(); }
 function triggerGameOver() {
   if (state !== 'playing') return;
   state = 'gameover';
+  stopBgm();
+  SFX.gameover();
   clearInterval(timerInterval); cancelAnimationFrame(animFrame);
   joystickArea.style.display = 'none';
+
+  const survived = day > 1 ? day - 1 : 0;
+  const result = saveRanking(survived);
+
   document.getElementById('goResult').textContent = `${day}日目で捕まった…`;
   document.getElementById('goDays').textContent   = day > 1 ? `${day - 1}日間は逃げ切った！` : '1日も逃げられなかった…';
+
+  const newRecEl = document.getElementById('newRecord');
+  if (result.rank > 0) {
+    newRecEl.textContent = `🏆 NEW! ランキング第${result.rank}位`;
+    newRecEl.classList.remove('hidden');
+  } else {
+    newRecEl.classList.add('hidden');
+  }
+  renderRanking(result.id);
+
   showScreen('gameoverScreen');
 }
 
@@ -670,6 +916,16 @@ function shareResult() {
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
 }
 
+document.getElementById('muteBtn').addEventListener('click', () => setMute(!isMuted));
+document.getElementById('muteBtn').textContent = isMuted ? '🔇' : '🔊';
+document.getElementById('titleBackBtn').addEventListener('click', () => {
+  state = 'title';
+  stopBgm();
+  showScreen('titleScreen');
+  renderRanking();
+});
+
+renderRanking();
 showScreen('titleScreen');
 draw();
 </script>
